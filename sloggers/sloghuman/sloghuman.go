@@ -12,6 +12,7 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/internal/entryhuman"
 	"cdr.dev/slog/internal/syncwriter"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Sink creates a slog.Sink that writes logs in a human
@@ -21,14 +22,32 @@ import (
 // it will be called when syncing.
 func Sink(w io.Writer) slog.Sink {
 	return &humanSink{
-		w:  syncwriter.New(w),
-		w2: w,
+		w:               syncwriter.New(w),
+		w2:              w,
+		logSpanAndTrace: true,
 	}
 }
 
+// NonTracingSink creates a slog.Sink that writes logs in a human
+// readable YAML like format to the given writer.
+//
+// If the writer implements Sync() error then
+// it will be called when syncing.
+//
+// Unlike Sink, this variant does not log trace/span info.
+func NonTracingSink(w io.Writer) slog.Sink {
+	return &humanSink{
+		w:               syncwriter.New(w),
+		w2:              w,
+		logSpanAndTrace: false,
+	}
+}
+
+
 type humanSink struct {
-	w  *syncwriter.Writer
-	w2 io.Writer
+	w               *syncwriter.Writer
+	w2              io.Writer
+	logSpanAndTrace bool
 }
 
 var bufPool = sync.Pool{
@@ -46,6 +65,9 @@ func (s humanSink) LogEntry(ctx context.Context, ent slog.SinkEntry) {
 	buf2.Reset()
 	defer bufPool.Put(buf2)
 
+	if !s.logSpanAndTrace {
+		ent.SpanContext = trace.SpanContext{}
+	}
 	entryhuman.Fmt(buf1, s.w2, ent)
 
 	var (
